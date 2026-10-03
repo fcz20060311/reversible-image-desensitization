@@ -29,11 +29,23 @@ Vue 前端
 ## 里程碑
 
 - [x] M0 环境搭建 + Python 热身
-- [ ] M1 论文算法 Python 重写（脱敏 + 还原）
-- [ ] M2 AI 自动检测（人脸 + 文字）
-- [ ] M3 隐私评测 + 对比实验（保研版本）
-- [ ] M4 Java 后端 + 前端 + 联调（实习版本）
-- [ ] M5 打磨（README / demo / 面试话术）
+- [x] M1 规则版 TPE（复现老师 baseline：保和替换 + 置换 + 三链密钥）✅
+- [ ] M2 AI 自动检测敏感区（人脸 / 车牌）
+- [ ] M3 只对敏感区脱敏 → 端到端最小闭环
+- [ ] M4 不规则分区升级（论文贡献）
+- [ ] M5 隐私评测 + 对比实验（保研版本）
+- [ ] M6 Web 系统（Java 后端 + 前端，实习版本）
+
+## 快速运行
+
+```bash
+cd python
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 把一张照片放到 test_picture/sample.jpg
+python demo.py
+```
+
+产出三张图：原图 / 加密图（花了但轮廓还在）/ 解密图（与原图逐像素一致）。
 
 ## 目录结构
 
