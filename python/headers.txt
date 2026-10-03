@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+date: Sat, 03 Oct 2026 10:41:38 GMT
+server: uvicorn
+x-job-id: a3efe5f6-bd0f-414c-a191-b9e42e5009db
+x-face-count: 1
+content-type: image/png
+Transfer-Encoding: chunked
+

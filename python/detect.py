@@ -32,5 +32,5 @@ print(f"检测到 {len(boxes)} 张人脸")
 for i, box in enumerate(boxes):
     print(f"  人脸 {i+1}: x1={box[0]}, y1={box[1]}, x2={box[2]}, y2={box[3]}")
 
-cv2.imwrite("test_picture/detect_boxes.png", img)
-print("已保存 test_picture/detect_boxes.png")
+cv2.imwrite("out_picture/detect_boxes.png", img)
+print("已保存 out_picture/detect_boxes.png")

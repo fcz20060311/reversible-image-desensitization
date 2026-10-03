@@ -14,7 +14,7 @@ gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
 print("灰度图形状",gray.shape)
 
 
-OUT_DIR="test_picture"
+OUT_DIR="out_picture"
 os.makedirs(OUT_DIR,exist_ok=True)
 cv2.imwrite(os.path.join(OUT_DIR,"warmup1.png"),img)
 cv2.imwrite(os.path.join(OUT_DIR,"warmup1_gray.png"),gray)

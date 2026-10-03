@@ -69,7 +69,7 @@ if __name__ == "__main__":
     dec = decrypt_faces(enc, boxes, KEY)
     print("解密后与原图一致?", np.array_equal(img, dec))
 
-    cv2.imwrite("test_picture/face_original.png", img)
-    cv2.imwrite("test_picture/face_encrypted.png", enc)
-    cv2.imwrite("test_picture/face_decrypted.png", dec)
+    cv2.imwrite("out_picture/face_original.png", img)
+    cv2.imwrite("out_picture/face_encrypted.png", enc)
+    cv2.imwrite("out_picture/face_decrypted.png", dec)
     print("已保存 3 张图：face_original / face_encrypted / face_decrypted")

@@ -33,3 +33,6 @@ _teacher_code/
 
 # 测试图片和本地照片（不提交）
 python/test_picture/
+
+# 输出图片（不提交）
+python/out_picture/

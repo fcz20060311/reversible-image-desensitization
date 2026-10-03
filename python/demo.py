@@ -32,7 +32,7 @@ dec, _ = decrypt_image(enc, 8, key)
 
 # 5) 验证 + 保存
 print("解密后与原图逐像素一致?", np.array_equal(img, dec))
-cv2.imwrite("test_picture/demo_original.png", img)
-cv2.imwrite("test_picture/demo_encrypted.png", enc)
-cv2.imwrite("test_picture/demo_decrypted.png", dec)
+cv2.imwrite("out_picture/demo_original.png", img)
+cv2.imwrite("out_picture/demo_encrypted.png", enc)
+cv2.imwrite("out_picture/demo_decrypted.png", dec)
 print("已保存 3 张图：demo_original / demo_encrypted / demo_decrypted")
