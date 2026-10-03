@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import os
 from tpe import encrypt_image, decrypt_image
 
 # 1) 读照片（把一张照片放到 test_picture/sample.jpg）
@@ -32,6 +33,7 @@ dec, _ = decrypt_image(enc, 8, key)
 
 # 5) 验证 + 保存
 print("解密后与原图逐像素一致?", np.array_equal(img, dec))
+os.makedirs("out_picture", exist_ok=True)
 cv2.imwrite("out_picture/demo_original.png", img)
 cv2.imwrite("out_picture/demo_encrypted.png", enc)
 cv2.imwrite("out_picture/demo_decrypted.png", dec)

@@ -4,19 +4,29 @@ import uuid
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from pipeline import KEY, decrypt_faces, encrypt_faces
 
 app = FastAPI(title="AI 可逆脱敏系统", description="上传照片，自动脱敏人脸，可无损还原")
 
+# 允许前端（5173 端口）跨域调用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Job-Id", "X-Face-Count"],
+)
+
 # 内存存储：job_id -> 人脸框列表（真实系统应存数据库）
 JOBS = {}
 
-
 @app.get("/")
 def root():
-    return {"name": "AI 可逆脱敏系统", "status": "ok", "接口文档": "/docs"}
+    return FileResponse("static/index.html")
 
 
 @app.post("/desensitize")

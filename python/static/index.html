@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 可逆脱敏系统</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #f0f2f5;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.08);
+    max-width: 660px;
+    width: 100%;
+    padding: 34px;
+  }
+  h1 { font-size: 22px; color: #1f2937; }
+  .sub { color: #9ca3af; font-size: 13px; margin: 6px 0 24px; }
+  .row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  button {
+    padding: 10px 24px; border: none; border-radius: 8px;
+    font-size: 15px; cursor: pointer; color: #fff; font-weight: 500;
+  }
+  #btnEnc { background: #2563eb; }
+  #btnEnc:hover { background: #1d4ed8; }
+  #btnDec { background: #059669; }
+  #btnDec:hover { background: #047857; }
+  button:disabled { background: #cbd5e1; cursor: not-allowed; }
+  input[type=file] { font-size: 14px; }
+  .img-box {
+    width: 100%; border: 1px dashed #d1d5db; border-radius: 10px;
+    min-height: 220px; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; margin-bottom: 16px; background: #fafafa;
+  }
+  .img-box img { max-width: 100%; max-height: 500px; display: none; }
+  .placeholder { color: #c0c4cc; font-size: 14px; }
+  .info { font-size: 13px; color: #4b5563; line-height: 1.8; }
+  #jobId { font-family: Consolas, monospace; word-break: break-all; color: #6b7280; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>AI 可逆脱敏系统</h1>
+  <p class="sub">上传照片 → 自动脱敏人脸 → 授权还原（无损）</p>
+
+  <div class="row">
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+  <div class="row">
+    <button id="btnEnc" onclick="desensitize()">① 脱敏</button>
+    <button id="btnDec" onclick="restore()" disabled>② 还原</button>
+  </div>
+
+  <div class="img-box">
+    <span class="placeholder" id="placeholder">图片会显示在这里</span>
+    <img id="resultImg" alt="处理结果">
+  </div>
+
+  <div class="info">
+    检测到人脸：<b id="faceCount">-</b> 张<br>
+    job_id：<span id="jobId">-</span>
+  </div>
+</div>
+
+<script>
+let jobId = null;
+let encBlob = null;
+
+async function desensitize() {
+  const input = document.getElementById("fileInput");
+  if (!input.files.length) { alert("请先选择一张图片"); return; }
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const resp = await fetch("/desensitize", { method: "POST", body: form });
+  if (!resp.ok) { alert("脱敏失败，请换一张图片"); return; }
+  jobId = resp.headers.get("X-Job-Id");
+  document.getElementById("faceCount").textContent = resp.headers.get("X-Face-Count") || "?";
+  document.getElementById("jobId").textContent = jobId;
+  encBlob = await resp.blob();
+  show(encBlob);
+  document.getElementById("btnDec").disabled = false;
+}
+
+async function restore() {
+  if (!jobId || !encBlob) { alert("请先脱敏"); return; }
+  const form = new FormData();
+  form.append("file", encBlob, "enc.png");
+  const resp = await fetch("/restore?job_id=" + jobId, { method: "POST", body: form });
+  if (!resp.ok) { alert("还原失败，job_id 可能已失效"); return; }
+  show(await resp.blob());
+}
+
+function show(blob) {
+  const img = document.getElementById("resultImg");
+  img.src = URL.createObjectURL(blob);
+  img.style.display = "block";
+  document.getElementById("placeholder").style.display = "none";
+}
+</script>
+</body>
+</html>

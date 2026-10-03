@@ -1,4 +1,5 @@
 import cv2
+import os
 import numpy as np
 from tpe import encrypt_image, decrypt_image
 
@@ -69,6 +70,7 @@ if __name__ == "__main__":
     dec = decrypt_faces(enc, boxes, KEY)
     print("解密后与原图一致?", np.array_equal(img, dec))
 
+    os.makedirs("out_picture", exist_ok=True)
     cv2.imwrite("out_picture/face_original.png", img)
     cv2.imwrite("out_picture/face_encrypted.png", enc)
     cv2.imwrite("out_picture/face_decrypted.png", dec)

@@ -1,4 +1,5 @@
 import cv2
+import os
 
 MODEL = "models/face_detection_yunet.onnx"
 
@@ -32,5 +33,6 @@ print(f"检测到 {len(boxes)} 张人脸")
 for i, box in enumerate(boxes):
     print(f"  人脸 {i+1}: x1={box[0]}, y1={box[1]}, x2={box[2]}, y2={box[3]}")
 
+os.makedirs("out_picture", exist_ok=True)
 cv2.imwrite("out_picture/detect_boxes.png", img)
 print("已保存 out_picture/detect_boxes.png")
