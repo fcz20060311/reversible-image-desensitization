@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Java
+target/
+*.class
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 本地数据 / 日志
+*.log
+.env
+uploads/
+outputs/
+
+# 老师原始代码（本地参考，不提交）
+_teacher_code/
+
+# 测试图片和本地照片（不提交）
+python/test_picture/
