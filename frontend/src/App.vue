@@ -3,29 +3,31 @@ import { ref } from "vue";
 import axios from "axios";
 import type { UploadFile } from "element-plus";
 
-// 后端地址
 const API = "http://127.0.0.1:8000";
 
-const imgUrl = ref("");
+const originalUrl = ref("");
+const resultUrl = ref("");
+const resultLabel = ref("脱敏图");
 const jobId = ref("");
-const faceCount = ref<number | null>(null);
+const regionCount = ref<number | null>(null);
 const encBlob = ref<Blob | null>(null);
 const loading = ref(false);
 
 async function desensitize(uploadFile: UploadFile) {
   const file = uploadFile.raw;
   if (!file) return;
+  originalUrl.value = URL.createObjectURL(file);
 
   const form = new FormData();
   form.append("file", file);
-
   loading.value = true;
   try {
     const resp = await axios.post(`${API}/desensitize`, form, { responseType: "blob" });
     jobId.value = (resp.headers["x-job-id"] as string) ?? "";
-    faceCount.value = Number(resp.headers["x-face-count"]);
+    regionCount.value = Number(resp.headers["x-region-count"]);
     encBlob.value = resp.data as Blob;
-    imgUrl.value = URL.createObjectURL(encBlob.value);
+    resultUrl.value = URL.createObjectURL(encBlob.value);
+    resultLabel.value = "脱敏图";
   } catch {
     alert("脱敏失败，请重试");
   } finally {
@@ -35,14 +37,13 @@ async function desensitize(uploadFile: UploadFile) {
 
 async function restore() {
   if (!encBlob.value || !jobId.value) return;
-
   const form = new FormData();
   form.append("file", encBlob.value, "enc.png");
-
   loading.value = true;
   try {
     const resp = await axios.post(`${API}/restore?job_id=${jobId.value}`, form, { responseType: "blob" });
-    imgUrl.value = URL.createObjectURL(resp.data as Blob);
+    resultUrl.value = URL.createObjectURL(resp.data as Blob);
+    resultLabel.value = "还原图";
   } catch {
     alert("还原失败，job_id 可能已失效");
   } finally {
@@ -53,71 +54,151 @@ async function restore() {
 
 <template>
   <div class="page">
-    <h1>AI 可逆脱敏系统</h1>
-    <p class="sub">上传照片 → 自动脱敏人脸 → 授权还原（无损）</p>
+    <header class="header">
+      <h1>AI 可逆脱敏系统</h1>
+      <p class="sub">上传照片 → 自动脱敏敏感信息 → 授权无损还原</p>
+    </header>
 
-    <div class="actions">
-      <el-upload :auto-upload="false" :show-file-list="false" :on-change="desensitize" accept="image/*">
-        <el-button type="primary" :loading="loading">① 选择图片并脱敏</el-button>
-      </el-upload>
-      <el-button type="success" :disabled="!encBlob" @click="restore">② 还原</el-button>
+    <el-upload
+      class="dropzone"
+      drag
+      :auto-upload="false"
+      :show-file-list="false"
+      :on-change="desensitize"
+      accept="image/*"
+    >
+      <div class="drop-hint">
+        <div class="drop-title">把照片拖到这里</div>
+        <div class="drop-sub">或点击选择文件（支持 jpg / png）</div>
+      </div>
+    </el-upload>
+
+    <div class="compare">
+      <div class="panel">
+        <div class="panel-title">原图</div>
+        <div class="panel-body">
+          <el-image v-if="originalUrl" :src="originalUrl" fit="contain" />
+          <span v-else class="placeholder">—</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">{{ resultLabel }}</div>
+        <div class="panel-body">
+          <el-image v-if="resultUrl" :src="resultUrl" fit="contain" />
+          <span v-else class="placeholder">—</span>
+        </div>
+      </div>
     </div>
 
-    <div class="box">
-      <el-image v-if="imgUrl" :src="imgUrl" fit="contain" class="result" />
-      <span v-else class="placeholder">图片会显示在这里</span>
-    </div>
-
-    <div class="info">
-      检测到人脸：<b>{{ faceCount ?? "-" }}</b> 张<br />
-      job_id：<span class="mono">{{ jobId || "-" }}</span>
-    </div>
+    <footer class="footer">
+      <div class="meta">
+        <span
+          >检测到 <b>{{ regionCount ?? "-" }}</b> 个敏感区域</span
+        >
+        <el-button type="success" :disabled="!encBlob" :loading="loading" @click="restore"> 授权还原 </el-button>
+      </div>
+      <div class="jobid">
+        job_id:<span class="mono">{{ jobId || "-" }}</span>
+      </div>
+    </footer>
   </div>
 </template>
 
 <style scoped>
 .page {
-  max-width: 640px;
-  margin: 48px auto;
-  padding: 0 16px;
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+.header {
+  margin-bottom: 24px;
+}
+.header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1f2937;
+  letter-spacing: -0.5px;
 }
 .sub {
-  color: #9ca3af;
-  font-size: 13px;
-  margin: 6px 0 20px;
+  color: #6b7280;
+  font-size: 14px;
+  margin-top: 6px;
 }
-.actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.box {
-  min-height: 220px;
-  border: 1px dashed #d1d5db;
-  border-radius: 10px;
+.dropzone :deep(.el-upload-dragger) {
+  border: 2px dashed #c7d0e0;
+  border-radius: 12px;
   background: #fff;
+  padding: 32px;
+}
+.drop-title {
+  font-size: 16px;
+  color: #2743c9;
+  font-weight: 600;
+}
+.drop-sub {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.panel {
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+.panel-title {
+  font-size: 13px;
+  color: #6b7280;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eef0f4;
+  background: #fafbfd;
+}
+.panel-body {
+  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  padding: 8px;
 }
-.result {
+.panel-body :deep(.el-image) {
   width: 100%;
-  max-height: 520px;
+  max-height: 480px;
 }
 .placeholder {
   color: #c0c4cc;
-  font-size: 14px;
+  font-size: 20px;
 }
-.info {
-  font-size: 13px;
-  color: #6b7280;
-  margin-top: 14px;
-  line-height: 1.9;
+.footer {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #374151;
+}
+.meta b {
+  color: #d97706;
+  font-size: 16px;
+}
+.jobid {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 10px;
 }
 .mono {
-  font-family: Consolas, monospace;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: #2743c9;
   word-break: break-all;
 }
 </style>

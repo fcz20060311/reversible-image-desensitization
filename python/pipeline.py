@@ -4,8 +4,11 @@ import numpy as np
 from tpe import encrypt_image, decrypt_image
 
 MODEL = "models/face_detection_yunet.onnx"
+PLATE_MODEL = "models/license_plate.pt"
 KEY = "357538782F413F4428472B4B6250655368566D59703373367639792442264528"
 DIMEN = 8
+
+_plate_model = None  # YOLO 车牌模型（懒加载，只加载一次）
 
 
 def detect_faces(img):
@@ -41,6 +44,54 @@ def encrypt_faces(img, key):
 
 def decrypt_faces(img, boxes, key):
     """用保存的框，把加密的人脸区域还原"""
+    out = img.copy()
+    for (x1, y1, x2, y2) in boxes:
+        dec, _ = decrypt_image(img[y1:y2, x1:x2], DIMEN, key)
+        out[y1:y2, x1:x2] = dec
+    return out
+
+
+def detect_plates(img, conf=0.25):
+    """用 YOLO 检测车牌，返回夹在图片内、边长是 8 的倍数的框"""
+    global _plate_model
+    if _plate_model is None:
+        from ultralytics import YOLO
+        _plate_model = YOLO(PLATE_MODEL)
+    h, w = img.shape[:2]
+    results = _plate_model(img, verbose=False)
+    boxes = []
+    if results and results[0].boxes is not None:
+        for box in results[0].boxes:
+            if float(box.conf[0]) >= conf:
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                x1 = max(0, int(x1))
+                y1 = max(0, int(y1))
+                x2 = min(w, int(x2))
+                y2 = min(h, int(y2))
+                x2 = x1 + (x2 - x1) // DIMEN * DIMEN
+                y2 = y1 + (y2 - y1) // DIMEN * DIMEN
+                if x2 > x1 and y2 > y1:
+                    boxes.append((x1, y1, x2, y2))
+    return boxes
+
+
+def detect_sensitive(img):
+    """检测所有人脸 + 车牌"""
+    return detect_faces(img) + detect_plates(img)
+
+
+def encrypt_sensitive(img, key):
+    """加密所有人脸 + 车牌区域，返回 (脱敏图, 框列表)"""
+    out = img.copy()
+    boxes = detect_sensitive(img)
+    for (x1, y1, x2, y2) in boxes:
+        enc, _ = encrypt_image(img[y1:y2, x1:x2], DIMEN, key)
+        out[y1:y2, x1:x2] = enc
+    return out, boxes
+
+
+def decrypt_sensitive(img, boxes, key):
+    """用保存的框，把敏感区域还原"""
     out = img.copy()
     for (x1, y1, x2, y2) in boxes:
         dec, _ = decrypt_image(img[y1:y2, x1:x2], DIMEN, key)
