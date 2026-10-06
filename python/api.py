@@ -1,14 +1,17 @@
+import base64
+import hashlib
 import io
 import uuid
+from typing import List
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from pipeline import KEY, decrypt_sensitive, encrypt_sensitive
-
+from codec import _decode_png_with_boxes, _encode_png_with_boxes
+from pipeline import KEY, gen_key, decrypt_sensitive, encrypt_sensitive
 app = FastAPI(title="AI 可逆脱敏系统", description="上传照片，自动脱敏人脸、车牌等敏感信息，可无损还原")
 
 # 允许前端跨域调用（开发阶段放行所有来源）
@@ -23,11 +26,11 @@ app.add_middleware(
 
 # 内存存储：job_id -> 人脸框列表（真实系统应存数据库）
 JOBS = {}
+BATCHES = {}
 
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
-
 
 @app.post("/desensitize")
 async def desensitize(file: UploadFile = File(...)):
@@ -69,3 +72,61 @@ async def restore(job_id: str, file: UploadFile = File(...)):
     dec = decrypt_sensitive(img, boxes, KEY)
     ok, buf = cv2.imencode(".png", dec)
     return StreamingResponse(io.BytesIO(buf.tobytes()), media_type="image/png")
+
+@app.post("/batch_desensitize")
+async def batch_desensitize(files: List[UploadFile] = File(...)):
+    """批量脱敏：一次收多张图，生成一把共享密钥，框写进图片元数据"""
+    key = gen_key()
+    images = []
+
+    for f in files:
+        data = await f.read()
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return JSONResponse({"error": f"无法解析 {f.filename}"}, status_code=400)
+
+        h, w = img.shape[:2]
+        if max(h, w) > 512:
+            s = 512 / max(h, w)
+            img = cv2.resize(img, (int(w * s), int(h * s)))
+
+        enc, boxes = encrypt_sensitive(img, key)
+
+        png_bytes = _encode_png_with_boxes(enc, boxes, key)
+        images.append({
+            "filename": f.filename,
+            "region_count": len(boxes),
+            "image_base64": base64.b64encode(png_bytes).decode("ascii"),
+        })
+
+    return {"key": key, "images": images}
+
+@app.post("/batch_restore")
+async def batch_restore(key: str = Form(...), files: List[UploadFile] = File(...)):
+    """批量还原：逐张处理，失败的单独标注，不影响其它张"""
+    results = []
+    for f in files:
+        try:
+            data = await f.read()
+            img, boxes, key_sha256 = _decode_png_with_boxes(data)
+
+            if hashlib.sha256(key.encode("ascii")).hexdigest() != key_sha256:
+                results.append({"filename": f.filename, "ok": False, "error": "密钥错误"})
+                continue
+
+            dec = decrypt_sensitive(img, boxes, key)
+            ok, buf = cv2.imencode(".png", dec)
+            results.append({
+                "filename": f.filename,
+                "ok": True,
+                "image_base64": base64.b64encode(buf.tobytes()).decode("ascii"),
+            })
+        except Exception:
+            results.append({"filename": f.filename, "ok": False, "error": "无法解析或还原"})
+
+    return {"results": results}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
