@@ -140,6 +140,37 @@ def detect_text(img):
             boxes.append((x1, y1, x2, y2))
     return boxes
 
+def analyze_sensitive(img):
+    """检测敏感信息，返回详细列表（含文字内容），供 LLM 做语义风险分析"""
+    global _text_reader
+    if _text_reader is None:
+        import easyocr
+        _text_reader = easyocr.Reader(
+            ["ch_sim", "en"], gpu=False, verbose=False,
+            model_storage_directory="models/easyocr/model",
+            user_network_directory="models/easyocr/user_network",
+        )
+
+    h, w = img.shape[:2]
+    items = []
+
+    for box in detect_faces(img):
+        items.append({"type": "人脸", "box": list(box)})
+
+    for box in detect_plates(img):
+        items.append({"type": "车牌", "box": list(box)})
+
+    for pts, text, conf in _text_reader.readtext(img):
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        x1 = max(0, int(min(xs)))
+        y1 = max(0, int(min(ys)))
+        x2 = min(w, int(max(xs)))
+        y2 = min(h, int(max(ys)))
+        items.append({"type": "文字", "box": [x1, y1, x2, y2], "content": text})
+
+    return items
+
 def detect_sensitive(img):
     """检测所有人脸 + 车牌 + 文字"""
     return _merge_boxes(detect_faces(img) + detect_plates(img) + detect_text(img))

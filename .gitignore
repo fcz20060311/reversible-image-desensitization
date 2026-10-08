@@ -36,3 +36,10 @@ python/test_picture/
 
 # 输出图片（不提交）
 python/out_picture/
+
+# 本地敏感配置（含 API Key，绝不提交）
+config.py
+python/config.py
+
+# pip 临时目录
+.piptmp/

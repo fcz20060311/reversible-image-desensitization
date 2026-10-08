@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import uuid
+import os
 from typing import List
 
 import cv2
@@ -27,6 +28,27 @@ app.add_middleware(
 # 内存存储：job_id -> 人脸框列表（真实系统应存数据库）
 JOBS = {}
 BATCHES = {}
+
+def _save_batch(key, names, pngs):
+    """把一批脱敏结果保存到 out_picture/test_N/，并写密钥.txt，返回文件夹名"""
+    os.makedirs("out_picture", exist_ok=True)
+    nums = []
+    for d in os.listdir("out_picture"):
+        if d.startswith("test_") and d[5:].isdigit():
+            nums.append(int(d[5:]))
+    n = max(nums, default=0) + 1
+    folder = os.path.join("out_picture", f"test_{n}")
+    os.makedirs(folder, exist_ok=True)
+
+    with open(os.path.join(folder, "密钥.txt"), "w", encoding="utf-8") as f:
+        f.write(key + "\n")
+
+    for name, png in zip(names, pngs):
+        safe = os.path.basename(name)
+        with open(os.path.join(folder, safe), "wb") as f:
+            f.write(png)
+
+    return folder
 
 @app.get("/")
 def root():

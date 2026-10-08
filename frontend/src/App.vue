@@ -1,68 +1,57 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import axios from "axios";
 import type { UploadFile } from "element-plus";
+import { base64ToBlob, desensitizeApi, restoreApi } from "./api";
+import type { Item, RestoreResult } from "./api";
 
-const API = "http://127.0.0.1:8000";
+const activeTab = ref("desensitize");
 
-interface Item {
-  filename: string;
-  regionCount: number;
-  url: string; // 当前展示的图片地址（脱敏图或还原图）
-  blob: Blob; // 脱敏图的字节，还原时要重新上传
-}
-
+// —— 脱敏页状态 ——
 const files = ref<File[]>([]);
 const items = ref<Item[]>([]);
 const key = ref("");
-const keyInput = ref("");
 const loading = ref(false);
-const restored = ref(false); // 是否已还原 → 控制「封存牌」状态
 
-// 所有图检测到的敏感区域总数（顶部状态栏用）
-const totalRegions = computed(() => items.value.reduce((sum, it) => sum + it.regionCount, 0));
+// —— 还原页状态 ——
+const restoreFiles = ref<File[]>([]);
+const restoreKeyInput = ref("");
+const restoreLoading = ref(false);
+const restoreResults = ref<RestoreResult[]>([]);
 
+const totalRegions = computed(() => items.value.reduce((s, it) => s + it.regionCount, 0));
+const failedCount = computed(() => restoreResults.value.filter((r) => !r.ok).length);
+
+// 脱敏页：文件选择
 function syncFiles(fileList: UploadFile[]) {
   files.value = fileList.map((f) => f.raw).filter((f) => !!f);
 }
-
-function onChange(_file: UploadFile, fileList: UploadFile[]) {
-  syncFiles(fileList);
+function onChange(_f: UploadFile, list: UploadFile[]) {
+  syncFiles(list);
+}
+function onRemove(_f: UploadFile, list: UploadFile[]) {
+  syncFiles(list);
 }
 
-function onRemove(_file: UploadFile, fileList: UploadFile[]) {
-  syncFiles(fileList);
+// 还原页：文件选择
+function syncRestoreFiles(fileList: UploadFile[]) {
+  restoreFiles.value = fileList.map((f) => f.raw).filter((f) => !!f);
 }
-
-function base64ToBlob(b64: string): Blob {
-  const chars = atob(b64);
-  const bytes = new Uint8Array(chars.length);
-  for (let i = 0; i < chars.length; i++) bytes[i] = chars.charCodeAt(i);
-  return new Blob([bytes], { type: "image/png" });
+function onRestoreChange(_f: UploadFile, list: UploadFile[]) {
+  syncRestoreFiles(list);
+}
+function onRestoreRemove(_f: UploadFile, list: UploadFile[]) {
+  syncRestoreFiles(list);
 }
 
 async function desensitize() {
   if (!files.value.length) return;
-  const form = new FormData();
-  files.value.forEach((f) => form.append("files", f));
-
   loading.value = true;
   try {
-    const resp = await axios.post(`${API}/batch_desensitize`, form);
-    const data = resp.data as {
-      key: string;
-      images: { filename: string; region_count: number; image_base64: string }[];
-    };
+    const data = await desensitizeApi(files.value);
     key.value = data.key;
-    restored.value = false;
     items.value = data.images.map((it) => {
       const blob = base64ToBlob(it.image_base64);
-      return {
-        filename: it.filename,
-        regionCount: it.region_count,
-        url: URL.createObjectURL(blob),
-        blob,
-      };
+      return { filename: it.filename, regionCount: it.region_count, url: URL.createObjectURL(blob), blob };
     });
   } catch {
     alert("批量脱敏失败，请重试");
@@ -72,29 +61,33 @@ async function desensitize() {
 }
 
 async function restore() {
-  if (!keyInput.value || !items.value.length) return;
-  const form = new FormData();
-  form.append("key", keyInput.value);
-  items.value.forEach((it) => form.append("files", it.blob, it.filename));
-
-  loading.value = true;
+  if (!restoreKeyInput.value || !restoreFiles.value.length) return;
+  restoreLoading.value = true;
   try {
-    const resp = await axios.post(`${API}/batch_restore`, form);
-    const images = resp.data.images as string[];
-    images.forEach((b64, i) => {
-      const blob = base64ToBlob(b64);
-      items.value[i].url = URL.createObjectURL(blob);
+    const data = await restoreApi(restoreKeyInput.value, restoreFiles.value);
+    restoreResults.value = data.results.map((r) => {
+      if (r.ok && r.image_base64) {
+        const blob = base64ToBlob(r.image_base64);
+        return { filename: r.filename, ok: true, url: URL.createObjectURL(blob), error: "" };
+      }
+      return { filename: r.filename, ok: false, url: "", error: r.error ?? "未知错误" };
     });
-    restored.value = true;
-  } catch (e: any) {
-    alert(e?.response?.data?.error ?? "还原失败，请检查密钥");
+  } catch {
+    alert("批量还原失败，请重试");
   } finally {
-    loading.value = false;
+    restoreLoading.value = false;
   }
 }
 
 function copyKey() {
   navigator.clipboard.writeText(key.value);
+}
+
+function downloadItem(it: Item) {
+  const a = document.createElement("a");
+  a.href = it.url;
+  a.download = it.filename.replace(/\.[^.]+$/, "") + "_脱敏.png";
+  a.click();
 }
 </script>
 
@@ -117,8 +110,9 @@ function copyKey() {
       </div>
     </header>
 
-    <div class="workbench">
-      <aside class="rail">
+    <el-tabs v-model="activeTab" class="tabs">
+      <!-- ===== 脱敏页 ===== -->
+      <el-tab-pane label="脱敏 · 加密" name="desensitize">
         <el-upload
           class="dropzone"
           drag
@@ -130,16 +124,16 @@ function copyKey() {
         >
           <div class="drop-hint">
             <div class="drop-glyph">＋</div>
-            <div class="drop-title">拖入照片</div>
+            <div class="drop-title">拖入原图</div>
             <div class="drop-sub">或点击选择 · 可一次多张</div>
           </div>
         </el-upload>
 
-        <div class="rail-row">
+        <div class="row">
           <el-button class="btn-primary" :loading="loading" :disabled="!files.length" @click="desensitize">
             批量脱敏
           </el-button>
-          <span class="file-count">{{ files.length ? `已选 ${files.length} 张` : "未选择文件" }}</span>
+          <span class="muted">{{ files.length ? `已选 ${files.length} 张` : "未选择文件" }}</span>
         </div>
 
         <div v-if="key" class="keycard">
@@ -148,25 +142,10 @@ function copyKey() {
             <el-button class="copy-btn" text @click="copyKey">复制</el-button>
           </div>
           <div class="keycard-value">{{ key }}</div>
-          <div class="keycard-note">还原时需凭此密钥 · 请妥善保存</div>
+          <div class="keycard-note">请保存密钥并下载脱敏图，还原时需要两者</div>
         </div>
 
-        <div v-if="items.length" class="restore">
-          <el-input v-model="keyInput" class="key-input" placeholder="输入共享密钥" clearable @keyup.enter="restore" />
-          <el-button class="btn-success" :loading="loading" :disabled="!keyInput" @click="restore">
-            授权还原
-          </el-button>
-        </div>
-      </aside>
-
-      <main class="plate">
-        <div v-if="!items.length" class="empty">
-          <div class="empty-glyph">◇</div>
-          <p>尚未封存任何图像</p>
-          <p class="empty-sub">左侧上传照片，开始一次批量脱敏</p>
-        </div>
-
-        <div v-else class="grid">
+        <div v-if="items.length" class="grid">
           <div v-for="(it, i) in items" :key="i" class="card">
             <div class="frame">
               <el-image :src="it.url" fit="contain" />
@@ -177,14 +156,70 @@ function copyKey() {
             </div>
             <div class="card-info">
               <div class="card-name">{{ it.filename }}</div>
-              <div class="seal" :class="{ open: restored }">
-                {{ restored ? "已还原 · RESTORED" : `已封存 · SEALED · ${it.regionCount}` }}
+              <div class="card-foot">
+                <span class="seal">已封存 · {{ it.regionCount }}</span>
+                <el-button class="dl-btn" text @click="downloadItem(it)">下载</el-button>
               </div>
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </el-tab-pane>
+
+      <!-- ===== 还原页 ===== -->
+      <el-tab-pane label="还原 · 解密" name="restore">
+        <el-upload
+          class="dropzone"
+          drag
+          multiple
+          :auto-upload="false"
+          :on-change="onRestoreChange"
+          :on-remove="onRestoreRemove"
+          accept="image/*"
+        >
+          <div class="drop-hint">
+            <div class="drop-glyph">＋</div>
+            <div class="drop-title">拖入脱敏图</div>
+            <div class="drop-sub">或点击选择 · 可一次多张</div>
+          </div>
+        </el-upload>
+
+        <div class="row">
+          <el-input v-model="restoreKeyInput" class="key-input" placeholder="输入共享密钥" clearable />
+          <el-button
+            class="btn-success"
+            :loading="restoreLoading"
+            :disabled="!restoreKeyInput || !restoreFiles.length"
+            @click="restore"
+          >
+            批量还原
+          </el-button>
+          <span class="muted">{{ restoreFiles.length ? `已选 ${restoreFiles.length} 张` : "" }}</span>
+        </div>
+
+        <div v-if="restoreResults.length" class="summary">
+          成功 <b class="ok">{{ restoreResults.length - failedCount }}</b> 张 · 失败
+          <b class="bad">{{ failedCount }}</b> 张
+        </div>
+
+        <div v-if="restoreResults.length" class="grid">
+          <div v-for="(r, i) in restoreResults" :key="i" class="card" :class="{ fail: !r.ok }">
+            <div class="frame">
+              <el-image v-if="r.ok" :src="r.url" fit="contain" />
+              <div v-else class="fail-box">
+                <div class="fail-glyph">✕</div>
+                <div class="fail-text">{{ r.error }}</div>
+              </div>
+            </div>
+            <div class="card-info">
+              <div class="card-name">{{ r.filename }}</div>
+              <span class="seal" :class="{ open: r.ok, bad: !r.ok }">
+                {{ r.ok ? "已还原" : "还原失败" }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -203,18 +238,21 @@ body {
   --bone: #e8e4dc;
   --brass: #c8963e;
   --tell: #6fb3a8;
-  max-width: 1200px;
+  --bad: #e2574c;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 0 24px 40px;
   color: var(--bone);
 }
+
+/* 顶栏 */
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 20px 0 16px;
   border-bottom: 1px solid var(--rule);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .brand {
   display: flex;
@@ -277,19 +315,23 @@ body {
   box-shadow: 0 0 6px var(--brass);
 }
 
-.workbench {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 20px;
-  align-items: start;
+/* 标签页 */
+.tabs :deep(.el-tabs__item) {
+  color: #6b7280;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 1px;
 }
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: sticky;
-  top: 20px;
+.tabs :deep(.el-tabs__item.is-active) {
+  color: var(--brass);
 }
+.tabs :deep(.el-tabs__active-bar) {
+  background-color: var(--brass);
+}
+.tabs :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--rule);
+}
+
+/* 拖拽区 */
 .dropzone :deep(.el-upload-dragger) {
   background: var(--slab);
   border: 1px dashed var(--rule);
@@ -316,12 +358,15 @@ body {
   font-size: 12px;
   margin-top: 4px;
 }
-.rail-row {
+
+/* 按钮行 */
+.row {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin: 16px 0;
 }
-.file-count {
+.muted {
   color: #6b7280;
   font-size: 12px;
 }
@@ -346,11 +391,13 @@ body {
   color: #07110f;
 }
 
+/* 密钥卡 */
 .keycard {
   background: var(--slab);
   border: 1px solid var(--rule);
   border-radius: 12px;
   padding: 14px 16px;
+  margin-bottom: 16px;
 }
 .keycard-head {
   display: flex;
@@ -379,10 +426,7 @@ body {
   color: #6b7280;
 }
 
-.restore {
-  display: flex;
-  gap: 10px;
-}
+/* 密钥输入 */
 .key-input :deep(.el-input__wrapper) {
   background: var(--slab);
   box-shadow: 0 0 0 1px var(--rule) inset;
@@ -391,35 +435,23 @@ body {
   color: var(--bone);
 }
 
-.plate {
-  min-height: 480px;
-}
-.empty {
-  border: 1px dashed var(--rule);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 480px;
+/* 结果统计 */
+.summary {
+  font-size: 13px;
   color: #6b7280;
+  margin: 4px 0 14px;
 }
-.empty-glyph {
-  font-size: 40px;
-  color: #374151;
+.summary .ok {
+  color: var(--tell);
 }
-.empty p {
-  margin-top: 12px;
-  font-size: 14px;
-}
-.empty-sub {
-  font-size: 12px;
-  color: #4b5563;
+.summary .bad {
+  color: var(--bad);
 }
 
+/* 图片网格 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
 }
 .card {
@@ -427,6 +459,9 @@ body {
   border: 1px solid var(--rule);
   border-radius: 12px;
   overflow: hidden;
+}
+.card.fail {
+  border-color: var(--bad);
 }
 .frame {
   position: relative;
@@ -475,9 +510,19 @@ body {
   color: var(--bone);
   word-break: break-all;
 }
+.card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.dl-btn {
+  color: var(--tell);
+}
+
+/* 封存牌 */
 .seal {
   display: inline-block;
-  margin-top: 8px;
   font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
   letter-spacing: 1px;
@@ -490,13 +535,27 @@ body {
   color: var(--tell);
   border-color: var(--tell);
 }
+.seal.bad {
+  color: var(--bad);
+  border-color: var(--bad);
+}
 
-@media (max-width: 860px) {
-  .workbench {
-    grid-template-columns: 1fr;
-  }
-  .rail {
-    position: static;
-  }
+/* 失败卡片 */
+.fail-box {
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #0d1117;
+}
+.fail-glyph {
+  font-size: 32px;
+  color: var(--bad);
+}
+.fail-text {
+  font-size: 12px;
+  color: #6b7280;
 }
 </style>
