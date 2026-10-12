@@ -3,6 +3,8 @@ import hashlib
 import io
 import uuid
 import os
+import json
+import time
 from typing import List
 
 import cv2
@@ -12,7 +14,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from codec import _decode_png_with_boxes, _encode_png_with_boxes
-from pipeline import KEY, gen_key, decrypt_sensitive, encrypt_sensitive
+from pipeline import KEY, gen_key, decrypt_sensitive, encrypt_sensitive, analyze_sensitive, draw_regions
+from llm import analyze_with_llm
+from irregular_tpe import encrypt_image_irregular, decrypt_image_irregular
 app = FastAPI(title="AI 可逆脱敏系统", description="上传照片，自动脱敏人脸、车牌等敏感信息，可无损还原")
 
 # 允许前端跨域调用（开发阶段放行所有来源）
@@ -49,6 +53,28 @@ def _save_batch(key, names, pngs):
             f.write(png)
 
     return folder
+
+AUDIT_FILE = "audit.log"
+
+def _log(action, filename, detail=""):
+    """写一条审计日志（往文件末尾追加一行 JSON）"""
+    entry = {
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "action": action,       # 脱敏 / 还原 / 风险分析
+        "filename": filename,
+        "detail": detail,
+    }
+    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+def _read_audit(limit=100):
+    """读最近 limit 条日志"""
+    try:
+        with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+            logs = [json.loads(ln) for ln in f if ln.strip()]
+    except FileNotFoundError:
+        return []
+    return logs[-limit:]
 
 @app.get("/")
 def root():
@@ -96,8 +122,8 @@ async def restore(job_id: str, file: UploadFile = File(...)):
     return StreamingResponse(io.BytesIO(buf.tobytes()), media_type="image/png")
 
 @app.post("/batch_desensitize")
-async def batch_desensitize(files: List[UploadFile] = File(...)):
-    """批量脱敏：一次收多张图，生成一把共享密钥，框写进图片元数据"""
+async def batch_desensitize(mode: str = Form("region"), files: List[UploadFile] = File(...)):
+    """批量脱敏：mode=region 区域脱敏 / mode=whole 整图加密，框写进图片元数据"""
     key = gen_key()
     images = []
 
@@ -112,15 +138,28 @@ async def batch_desensitize(files: List[UploadFile] = File(...)):
             s = 512 / max(h, w)
             img = cv2.resize(img, (int(w * s), int(h * s)))
 
-        enc, boxes = encrypt_sensitive(img, key)
+        if mode == "whole":
+            # 整图加密：不检测，整张图不规则加密
+            enc, _ = encrypt_image_irregular(img, key)
+            boxes = []
+        else:
+            enc, boxes = encrypt_sensitive(img, key)
 
-        png_bytes = _encode_png_with_boxes(enc, boxes, key)
+        # 在脱敏图上画出检测框（整图加密时无框，就是原样）
+        regions = [] if mode == "whole" else analyze_sensitive(img)
+        annotated = draw_regions(enc, regions)
+        ok_ann, buf_ann = cv2.imencode(".png", annotated)
+
+        png_bytes = _encode_png_with_boxes(enc, boxes, key, mode)
+
         images.append({
             "filename": f.filename,
             "region_count": len(boxes),
             "image_base64": base64.b64encode(png_bytes).decode("ascii"),
+            "annotated_base64": base64.b64encode(buf_ann.tobytes()).decode("ascii"),
         })
 
+    _log("脱敏", f"{len(files)} 张图片", f"密钥指纹 {hashlib.sha256(key.encode('ascii')).hexdigest()[:12]}")
     return {"key": key, "images": images}
 
 @app.post("/batch_restore")
@@ -130,13 +169,16 @@ async def batch_restore(key: str = Form(...), files: List[UploadFile] = File(...
     for f in files:
         try:
             data = await f.read()
-            img, boxes, key_sha256 = _decode_png_with_boxes(data)
+            img, boxes, key_sha256, mode = _decode_png_with_boxes(data)
 
             if hashlib.sha256(key.encode("ascii")).hexdigest() != key_sha256:
                 results.append({"filename": f.filename, "ok": False, "error": "密钥错误"})
                 continue
 
-            dec = decrypt_sensitive(img, boxes, key)
+            if mode == "whole":
+                dec, _ = decrypt_image_irregular(img, key)
+            else:
+                dec = decrypt_sensitive(img, boxes, key)
             ok, buf = cv2.imencode(".png", dec)
             results.append({
                 "filename": f.filename,
@@ -146,8 +188,33 @@ async def batch_restore(key: str = Form(...), files: List[UploadFile] = File(...
         except Exception:
             results.append({"filename": f.filename, "ok": False, "error": "无法解析或还原"})
 
+    ok_count = sum(1 for r in results if r["ok"])
+    _log("还原", f"{len(results)} 张图片", f"成功 {ok_count} · 失败 {len(results) - ok_count}")
     return {"results": results}
 
+@app.post("/report")
+async def report(file: UploadFile = File(...)):
+    """上传图片，返回检测到的敏感信息 + LLM 风险判断报告"""
+    data = await file.read()
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return JSONResponse({"error": "无法解析图片，请上传 jpg / png"}, status_code=400)
+
+    h, w = img.shape[:2]
+    if max(h, w) > 512:
+        s = 512 / max(h, w)
+        img = cv2.resize(img, (int(w * s), int(h * s)))
+
+    items = analyze_sensitive(img)
+    report = analyze_with_llm(items)
+    _log("风险分析", file.filename, f"检测到 {len(items)} 处敏感信息")
+    return {"regions": items, "report": report}
+
+
+@app.get("/audit")
+def audit(limit: int = 100):
+    """返回最近 limit 条审计日志"""
+    return {"logs": _read_audit(limit)}
 
 if __name__ == "__main__":
     import uvicorn

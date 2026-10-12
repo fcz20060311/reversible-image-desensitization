@@ -3,6 +3,7 @@ import os
 import numpy as np
 import secrets
 from tpe import encrypt_image, decrypt_image
+from irregular_tpe import encrypt_image_irregular, decrypt_image_irregular
 
 MODEL = "models/face_detection_yunet.onnx"
 PLATE_MODEL = "models/license_plate.pt"
@@ -176,11 +177,11 @@ def detect_sensitive(img):
     return _merge_boxes(detect_faces(img) + detect_plates(img) + detect_text(img))
 
 def encrypt_sensitive(img, key):
-    """加密所有人脸 + 车牌区域，返回 (脱敏图, 框列表)"""
+    """用「不规则可逆加密」加密所有敏感区域，返回 (脱敏图, 框列表)"""
     out = img.copy()
     boxes = detect_sensitive(img)
     for (x1, y1, x2, y2) in boxes:
-        enc, _ = encrypt_image(img[y1:y2, x1:x2], DIMEN, key)
+        enc, _ = encrypt_image_irregular(img[y1:y2, x1:x2], key)
         out[y1:y2, x1:x2] = enc
     return out, boxes
 
@@ -189,10 +190,24 @@ def decrypt_sensitive(img, boxes, key):
     """用保存的框，把敏感区域还原"""
     out = img.copy()
     for (x1, y1, x2, y2) in boxes:
-        dec, _ = decrypt_image(img[y1:y2, x1:x2], DIMEN, key)
+        dec, _ = decrypt_image_irregular(img[y1:y2, x1:x2], key)
         out[y1:y2, x1:x2] = dec
     return out
 
+
+_REGION_COLORS={
+    "人脸":(0,0,255),
+    "车牌":(255,0,0),
+    "文字":(0,255,0),
+}
+
+def draw_regions(img,regions):
+    out=img.copy()
+    for r in regions:
+        x1,y1,x2,y2=r["box"]
+        color=_REGION_COLORS.get(r["type"],(0,255,255))
+        cv2.rectangle(out,(x1,y1),(x2,y2),color,2)
+    return out
 
 if __name__ == "__main__":
     img = cv2.imread("test_picture/sample.jpg")

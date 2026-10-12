@@ -7,6 +7,7 @@ export interface Item {
   filename: string;
   regionCount: number;
   url: string;
+  annUrl: string;
   blob: Blob;
 }
 
@@ -27,13 +28,14 @@ export function base64ToBlob(b64: string): Blob {
 }
 
 // 批量脱敏：返回 { key, images }
-export async function desensitizeApi(files: File[]) {
+export async function desensitizeApi(files: File[], mode: string) {
   const form = new FormData();
+  form.append("mode", mode);
   files.forEach((f) => form.append("files", f));
   const resp = await axios.post(`${API}/batch_desensitize`, form);
   return resp.data as {
     key: string;
-    images: { filename: string; region_count: number; image_base64: string }[];
+    images: { filename: string; region_count: number; image_base64: string; annotated_base64: string }[];
   };
 }
 
@@ -45,5 +47,24 @@ export async function restoreApi(key: string, files: File[]) {
   const resp = await axios.post(`${API}/batch_restore`, form);
   return resp.data as {
     results: { filename: string; ok: boolean; image_base64?: string; error?: string }[];
+  };
+}
+
+// 风险分析：上传一张图，返回检测到的敏感信息 + LLM 报告
+export async function reportApi(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await axios.post(`${API}/report`, form);
+  return resp.data as {
+    regions: { type: string; box: number[]; content?: string }[];
+    report: string;
+  };
+}
+
+// 拉取审计日志
+export async function fetchAuditApi() {
+  const resp = await axios.get(`${API}/audit`);
+  return resp.data as {
+    logs: { time: string; action: string; filename: string; detail: string }[];
   };
 }

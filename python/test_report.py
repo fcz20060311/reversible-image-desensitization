@@ -7,7 +7,7 @@ BASE = "http://127.0.0.1:8000"
 path = "test_picture/sample_car.jpg"
 
 with open(path, "rb") as f:
-    files = [("files", (path, f.read(), "image/jpeg"))]
+    files = {"file": (path, f.read(), "image/jpeg")}
 
 resp = requests.post(f"{BASE}/report", files=files)
 print("状态码:", resp.status_code)

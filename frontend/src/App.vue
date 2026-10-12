@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { UploadFile } from "element-plus";
-import { base64ToBlob, desensitizeApi, restoreApi } from "./api";
+import { base64ToBlob, desensitizeApi, restoreApi, reportApi, fetchAuditApi } from "./api";
 import type { Item, RestoreResult } from "./api";
 
 const activeTab = ref("desensitize");
@@ -11,12 +11,23 @@ const files = ref<File[]>([]);
 const items = ref<Item[]>([]);
 const key = ref("");
 const loading = ref(false);
+const wholeMode = ref(false);   // false=区域脱敏，true=整图加密
 
 // —— 还原页状态 ——
 const restoreFiles = ref<File[]>([]);
 const restoreKeyInput = ref("");
 const restoreLoading = ref(false);
 const restoreResults = ref<RestoreResult[]>([]);
+
+// —— 风险分析页状态 ——
+const reportFile = ref<File | null>(null);
+const reportLoading = ref(false);
+const reportText = ref("");
+const reportRegions = ref<{ type: string; box: number[]; content?: string }[]>([]);
+
+// —— 审计日志页状态 ——
+const auditLogs = ref<{ time: string; action: string; filename: string; detail: string }[]>([]);
+const auditLoading = ref(false);
 
 const totalRegions = computed(() => items.value.reduce((s, it) => s + it.regionCount, 0));
 const failedCount = computed(() => restoreResults.value.filter((r) => !r.ok).length);
@@ -47,11 +58,18 @@ async function desensitize() {
   if (!files.value.length) return;
   loading.value = true;
   try {
-    const data = await desensitizeApi(files.value);
+    const data = await desensitizeApi(files.value, wholeMode.value ? "whole" : "region");
     key.value = data.key;
     items.value = data.images.map((it) => {
       const blob = base64ToBlob(it.image_base64);
-      return { filename: it.filename, regionCount: it.region_count, url: URL.createObjectURL(blob), blob };
+      const annBlob = base64ToBlob(it.annotated_base64);
+      return {
+        filename: it.filename,
+        regionCount: it.region_count,
+        url: URL.createObjectURL(blob),
+        annUrl: URL.createObjectURL(annBlob),
+        blob,
+      };
     });
   } catch {
     alert("批量脱敏失败，请重试");
@@ -76,6 +94,47 @@ async function restore() {
     alert("批量还原失败，请重试");
   } finally {
     restoreLoading.value = false;
+  }
+}
+
+// 风险分析页：文件选择（只取一张）
+function syncReportFiles(fileList: UploadFile[]) {
+  reportFile.value = fileList[0]?.raw ?? null;
+}
+function onReportChange(_f: UploadFile, list: UploadFile[]) {
+  syncReportFiles(list);
+}
+function onReportRemove(_f: UploadFile, list: UploadFile[]) {
+  syncReportFiles(list);
+}
+
+// 调用后端 /report，拿到检测结果 + LLM 报告
+async function analyze() {
+  if (!reportFile.value) return;
+  reportLoading.value = true;
+  reportText.value = "";
+  reportRegions.value = [];
+  try {
+    const data = await reportApi(reportFile.value);
+    reportRegions.value = data.regions;
+    reportText.value = data.report;
+  } catch {
+    alert("风险分析失败，请确认后端已启动且网络正常");
+  } finally {
+    reportLoading.value = false;
+  }
+}
+
+// 拉取审计日志
+async function loadAudit() {
+  auditLoading.value = true;
+  try {
+    const data = await fetchAuditApi();
+    auditLogs.value = data.logs;
+  } catch {
+    alert("获取审计日志失败，请确认后端已启动");
+  } finally {
+    auditLoading.value = false;
   }
 }
 
@@ -133,6 +192,7 @@ function downloadItem(it: Item) {
           <el-button class="btn-primary" :loading="loading" :disabled="!files.length" @click="desensitize">
             批量脱敏
           </el-button>
+          <el-switch v-model="wholeMode" active-text="整图加密" inactive-text="区域脱敏" class="mode-switch" />
           <span class="muted">{{ files.length ? `已选 ${files.length} 张` : "未选择文件" }}</span>
         </div>
 
@@ -145,10 +205,16 @@ function downloadItem(it: Item) {
           <div class="keycard-note">请保存密钥并下载脱敏图，还原时需要两者</div>
         </div>
 
+        <div v-if="items.length && !wholeMode" class="legend">
+          <span class="legend-item"><span class="legend-dot red"></span>人脸</span>
+          <span class="legend-item"><span class="legend-dot blue"></span>车牌</span>
+          <span class="legend-item"><span class="legend-dot green"></span>文字</span>
+        </div>
+
         <div v-if="items.length" class="grid">
           <div v-for="(it, i) in items" :key="i" class="card">
             <div class="frame">
-              <el-image :src="it.url" fit="contain" />
+              <el-image :src="it.annUrl" fit="contain" />
               <span class="corner tl"></span>
               <span class="corner tr"></span>
               <span class="corner bl"></span>
@@ -157,11 +223,55 @@ function downloadItem(it: Item) {
             <div class="card-info">
               <div class="card-name">{{ it.filename }}</div>
               <div class="card-foot">
-                <span class="seal">已封存 · {{ it.regionCount }}</span>
+                <span class="seal">{{ wholeMode ? "整图加密" : `已封存 · ${it.regionCount}` }}</span>
                 <el-button class="dl-btn" text @click="downloadItem(it)">下载</el-button>
               </div>
             </div>
           </div>
+        </div>
+      </el-tab-pane>
+      <!-- ===== 风险分析页 ===== -->
+      <el-tab-pane label="风险分析" name="report">
+        <el-upload
+          class="dropzone"
+          drag
+          :auto-upload="false"
+          :limit="1"
+          :on-change="onReportChange"
+          :on-remove="onReportRemove"
+          accept="image/*"
+        >
+          <div class="drop-hint">
+            <div class="drop-glyph">＋</div>
+            <div class="drop-title">拖入一张待分析图片</div>
+            <div class="drop-sub">或点击选择 · 单张</div>
+          </div>
+        </el-upload>
+
+        <div class="row">
+          <el-button class="btn-primary" :loading="reportLoading" :disabled="!reportFile" @click="analyze">
+            风险分析
+          </el-button>
+          <span class="muted">{{ reportFile ? reportFile.name : "未选择文件" }}</span>
+        </div>
+
+        <div v-if="reportLoading" class="report-card">
+          <div class="report-head">正在调用大模型分析…</div>
+        </div>
+
+        <div v-if="reportRegions.length" class="report-card">
+          <div class="report-head">检测到 {{ reportRegions.length }} 处敏感信息</div>
+          <ul class="region-list">
+            <li v-for="(rg, i) in reportRegions" :key="i">
+              <span class="seal">{{ rg.type }}</span>
+              <span v-if="rg.content" class="region-content">「{{ rg.content }}」</span>
+            </li>
+          </ul>
+        </div>
+
+        <div v-if="reportText" class="report-card">
+          <div class="report-head">LLM 风险报告</div>
+          <div class="report-body">{{ reportText }}</div>
         </div>
       </el-tab-pane>
 
@@ -218,6 +328,30 @@ function downloadItem(it: Item) {
             </div>
           </div>
         </div>
+      </el-tab-pane>
+
+      <!-- ===== 审计日志页 ===== -->
+      <el-tab-pane label="审计日志" name="audit">
+        <div class="row">
+          <el-button class="btn-primary" :loading="auditLoading" @click="loadAudit">刷新日志</el-button>
+          <span class="muted">共 {{ auditLogs.length }} 条记录</span>
+        </div>
+
+        <div v-if="auditLogs.length" class="audit-table">
+          <div class="audit-row audit-head">
+            <span>时间</span>
+            <span>操作</span>
+            <span>对象</span>
+            <span>详情</span>
+          </div>
+          <div v-for="(log, i) in auditLogs" :key="i" class="audit-row">
+            <span class="audit-mono">{{ log.time }}</span>
+            <span class="seal">{{ log.action }}</span>
+            <span>{{ log.filename }}</span>
+            <span class="muted">{{ log.detail }}</span>
+          </div>
+        </div>
+        <div v-else-if="!auditLoading" class="muted">暂无日志，先去做一次脱敏 / 还原 / 风险分析，再回来刷新</div>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -556,6 +690,108 @@ body {
 }
 .fail-text {
   font-size: 12px;
+  color: #6b7280;
+}
+/* 风险分析报告 */
+.report-card {
+  background: var(--slab);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.report-head {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--brass);
+  margin-bottom: 12px;
+}
+.region-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.region-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.region-content {
+  font-size: 13px;
+  color: var(--bone);
+}
+.report-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--bone);
+  white-space: pre-wrap;
+}
+
+/* 审计日志 */
+.audit-table {
+  background: var(--slab);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.audit-row {
+  display: grid;
+  grid-template-columns: 150px 90px 1fr 1fr;
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: center;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule);
+}
+.audit-row:last-child {
+  border-bottom: none;
+}
+.audit-head {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #6b7280;
+  background: #0d1117;
+}
+.audit-mono {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: var(--bone);
+}
+
+/* 检测框图例 */
+.legend {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 4px 0 14px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.legend-dot.red {
+  background: #ff4d4f;
+}
+.legend-dot.blue {
+  background: #409eff;
+}
+.legend-dot.green {
+  background: #52c41a;
+}
+.mode-switch :deep(.el-switch__label) {
   color: #6b7280;
 }
 </style>
