@@ -9,6 +9,8 @@ spring:
     password: Fei18979214534
 
 mybatis-plus:
+  mapper-locations: classpath*:/Mapper/**/*.xml
+  type-aliases-package: com.earlyvernal.desensitizationserver.Entity
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

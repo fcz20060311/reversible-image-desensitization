@@ -1,16 +1,17 @@
 package com.earlyvernal.desensitizationserver.DTO;
 
 
+import com.earlyvernal.desensitizationserver.Common.MessageConstant;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
 public class LoginDTO {
 
-    @NotBlank(message="用户不能为空")
+    @NotBlank(message= MessageConstant.USERNAME_NOT_BLANK)
     private String username;
 
-    @NotBlank(message="密码不能为空")
-    private String passworrd;
+    @NotBlank(message=MessageConstant.PASSWORD_NOT_BLANK)
+    private String password;
 
 }

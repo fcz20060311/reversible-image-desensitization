@@ -20,4 +20,6 @@ public class User {
     private String password;
 
     private LocalDateTime createTime;
+
+    private String nickname;
 }

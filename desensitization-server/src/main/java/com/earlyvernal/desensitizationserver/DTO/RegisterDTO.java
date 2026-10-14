@@ -1,6 +1,7 @@
 package com.earlyvernal.desensitizationserver.DTO;
 
 
+import com.earlyvernal.desensitizationserver.Common.MessageConstant;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -8,12 +9,12 @@ import lombok.Data;
 @Data
 public class RegisterDTO {
 
-    @NotBlank(message="用户不能为空")
-    @Size(min=3,max=20,message="密码长度需3~20位")
+    @NotBlank(message= MessageConstant.USERNAME_NOT_BLANK)
+    @Size(min=3,max=20,message=MessageConstant.USERNAME_SIZE)
     private String username;
 
-    @NotBlank(message="密码不能为空")
-    @Size(min=6,max=20,message="密码长度需6~20位")
+    @NotBlank(message=MessageConstant.PASSWORD_NOT_BLANK)
+    @Size(min=6,max=20,message=MessageConstant.PASSWORD_SIZE)
     private String password;
     private String nickname;
 }

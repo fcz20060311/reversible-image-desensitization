@@ -1,5 +1,6 @@
 package com.earlyvernal.desensitizationserver.Util;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -31,6 +32,16 @@ public class JwtUtil {
                 .signWith(KEY, SignatureAlgorithm.HS256)
                 .compact();
     }
+    public static Claims parseToken(String token){
+        return Jwts.parserBuilder()
+                .setSigningKey(KEY)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
 
-    
+
+    public static Long getUserId(String token) {
+        return parseToken(token).get("userId",Long.class);
+    }
 }
