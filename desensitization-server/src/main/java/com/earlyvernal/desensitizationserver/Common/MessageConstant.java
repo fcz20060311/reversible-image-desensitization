@@ -10,4 +10,10 @@ public class MessageConstant {
     public static final String PASSWORD_NOT_BLANK = "密码不能为空";
     public static final String USERNAME_SIZE = "用户名长度需 3~20 位";
     public static final String PASSWORD_SIZE = "密码长度需 6~20 位";
+
+    /** 算法服务（Python）返回异常 */
+    public static final String PYTHON_SERVICE_ERROR = "算法服务返回异常";
+
+    /** 解密失败 */
+    public static final String DECRYPT_FAILED = "解密失败";
 }
