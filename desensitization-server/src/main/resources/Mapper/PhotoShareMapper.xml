@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earlyvernal.desensitizationserver.Mapper.PhotoShareMapper">
+
+    <!-- 收件箱：JOIN 用户表，拿到发送者昵称 -->
+    <select id="selectInbox" resultType="PhotoShare">
+        SELECT
+            p.id,
+            p.sender_id,
+            p.receiver_id,
+            p.filename,
+            p.file_path,
+            p.key_sha256,
+            p.create_time,
+            u.username AS sender_name
+        FROM photo_share p
+                 LEFT JOIN user u ON u.id = p.sender_id
+        WHERE p.receiver_id = #{receiverId}
+        ORDER BY p.create_time DESC
+    </select>
+</mapper>
