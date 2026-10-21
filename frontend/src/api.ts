@@ -106,7 +106,7 @@ export interface CurrentUser {
 }
 
 export async function getCurrentUserApi() {
-  const resp = await axios.get(`{API_JAVA}/api/user/me`, {
+  const resp = await axios.get(`${API_JAVA}/api/user/me`, {
     headers: {
       Authorization: getToken(),
     },
