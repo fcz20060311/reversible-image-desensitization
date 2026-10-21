@@ -5,6 +5,7 @@ public class MessageConstant {
     public static final String USERNAME_EXISTS = "用户名已存在";
     public static final String LOGIN_FAILED = "用户名或密码错误";
     public static final String REGISTER_SUCCESS = "注册成功";
+    public static final String USERNAME_NOT_EXISTS = "用户名不存在,请重新登录";
 
     public static final String USERNAME_NOT_BLANK = "用户名不能为空";
     public static final String PASSWORD_NOT_BLANK = "密码不能为空";
@@ -23,4 +24,6 @@ public class MessageConstant {
 
     public static final String FILE_READ_FAILED = "文件读取失败";
     public static final String FILE_DECRYPT_FAILED = "文件解密失败";
+
+
 }
