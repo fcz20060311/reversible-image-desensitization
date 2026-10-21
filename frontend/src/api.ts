@@ -1,6 +1,7 @@
 import axios from "axios";
 
 export const API = "http://127.0.0.1:8000";
+export const API_JAVA = "http://127.0.0.1:8080";
 
 // 一张脱敏结果（前端展示用）
 export interface Item {
@@ -66,5 +67,54 @@ export async function fetchAuditApi() {
   const resp = await axios.get(`${API}/audit`);
   return resp.data as {
     logs: { time: string; action: string; filename: string; detail: string }[];
+  };
+}
+
+const TOKEN_KEY = "dsh_token";
+
+// 取本地村的token
+export function getToken(): string {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+//存token
+export function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+//清楚token
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+//登录:返回java的
+export async function loginApi(username: string, password: string) {
+  const resp = await axios.post(`${API_JAVA}/api/user/login`, { username, password });
+  return resp.data as { code: number; msg: string; data: string };
+}
+
+//注册
+export async function registerApi(username: string, password: string, nickname?: string) {
+  const resp = await axios.post(`${API_JAVA}/api/user/register`, { username, password, nickname });
+  return resp.data as { code: number; msg: string; data: null };
+}
+
+export interface CurrentUser {
+  id: number;
+  username: string;
+  nickname: string | null;
+}
+
+export async function getCurrentUserApi() {
+  const resp = await axios.get(`{API_JAVA}/api/user/me`, {
+    headers: {
+      Authorization: getToken(),
+    },
+  });
+
+  return resp.data as {
+    code: number;
+    msg: string;
+    data: CurrentUser | null;
   };
 }

@@ -1,17 +1,67 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, onMounted } from "vue";
 import type { UploadFile } from "element-plus";
-import { base64ToBlob, desensitizeApi, restoreApi, reportApi, fetchAuditApi } from "./api";
-import type { Item, RestoreResult } from "./api";
+import {
+  base64ToBlob,
+  desensitizeApi,
+  restoreApi,
+  reportApi,
+  fetchAuditApi,
+  getToken,
+  clearToken,
+  getCurrentUserApi,
+} from "./api";
+import type { Item, RestoreResult, CurrentUser } from "./api";
+import LoginView from "./LoginView.vue";
 
 const activeTab = ref("desensitize");
+const token = ref(getToken());
+const currentUser = ref<CurrentUser | null>(null);
+
+async function loadCurrentUser() {
+  const requestToken = token.value;
+  if (!requestToken) return;
+
+  try {
+    const res = await getCurrentUserApi();
+
+    if (token.value !== requestToken) return;
+
+    if (res.code === 1 && res.data) {
+      currentUser.value = res.data;
+    } else {
+      alert(res.msg || "获取用户信息失败");
+    }
+  } catch {
+    if (token.value === requestToken) {
+      alert("获取用户信息失败,请稍后重试");
+    }
+  }
+}
+
+async function onLoginSuccess() {
+  token.value = getToken();
+  await loadCurrentUser();
+}
+
+function logout() {
+  clearToken();
+  token.value = "";
+  currentUser.value = null;
+}
+
+onMounted(async () => {
+  if (token.value) {
+    await loadCurrentUser();
+  }
+});
 
 // —— 脱敏页状态 ——
 const files = ref<File[]>([]);
 const items = ref<Item[]>([]);
 const key = ref("");
 const loading = ref(false);
-const wholeMode = ref(false);   // false=区域脱敏，true=整图加密
+const wholeMode = ref(false); // false=区域脱敏，true=整图加密
 
 // —— 还原页状态 ——
 const restoreFiles = ref<File[]>([]);
@@ -151,7 +201,9 @@ function downloadItem(it: Item) {
 </script>
 
 <template>
-  <div class="page">
+  <LoginView v-if="!token" @login-success="onLoginSuccess" />
+
+  <div v-else class="page">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark">▣</span>
@@ -166,6 +218,8 @@ function downloadItem(it: Item) {
           {{ items.length ? `已封存 ${items.length} 张 · ${totalRegions} 区域` : "待命" }}
         </span>
         <span v-if="key" class="chip key-chip">KEY {{ key.slice(0, 8) }}…</span>
+        <span v-if="currentUser" class="chip"> 你好，{{ currentUser.nickname || currentUser.username }} </span>
+        <el-button text class="logout-btn" @click="logout">退出</el-button>
       </div>
     </header>
 
@@ -447,6 +501,13 @@ body {
 .chip.on .dot {
   background: var(--brass);
   box-shadow: 0 0 6px var(--brass);
+}
+.logout-btn {
+  color: #6b7280;
+  font-size: 13px;
+}
+.logout-btn:hover {
+  color: var(--brass);
 }
 
 /* 标签页 */
