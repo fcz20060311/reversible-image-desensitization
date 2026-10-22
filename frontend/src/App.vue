@@ -10,6 +10,7 @@ import {
   getToken,
   clearToken,
   getCurrentUserApi,
+  sharePhotoApi,
 } from "./api";
 import type { Item, RestoreResult, CurrentUser } from "./api";
 import LoginView from "./LoginView.vue";
@@ -50,6 +51,7 @@ function logout() {
   currentUser.value = null;
   shareReceiverId.value = undefined;
   shareFile.value = null;
+  shareKey.value = "";
 }
 
 onMounted(async () => {
@@ -204,8 +206,56 @@ function downloadItem(it: Item) {
 const shareReceiverId = ref<number | undefined>(undefined);
 const shareFile = ref<File | null>(null);
 
+const shareLoading = ref(false);
+const shareKey = ref("");
+
 function onShareFileChange(_file: UploadFile, fileList: UploadFile[]) {
   shareFile.value = fileList[0]?.raw ?? null;
+}
+
+async function submitShare() {
+  //防止连续点击
+  if (shareLoading.value) return;
+
+  const receiverId = shareReceiverId.value;
+  const file = shareFile.value;
+  const requestToken = token.value;
+
+  if (!requestToken) {
+    alert("请先登录");
+    return;
+  }
+
+  if (receiverId === undefined || !Number.isSafeInteger(receiverId) || receiverId < 1) {
+    alert("请输入有效的接收者编号");
+    return;
+  }
+
+  if (!file) {
+    alert("请选择一张原图");
+    return;
+  }
+
+  shareLoading.value = true;
+  shareKey.value = "";
+  try {
+    const res = await sharePhotoApi(receiverId, file);
+
+    // 等待期间如果退出或切换账号，就不显示本次结果
+    if (token.value !== requestToken) return;
+
+    if (res.code === 1 && res.data) {
+      shareKey.value = res.data;
+    } else {
+      alert(res.msg || "分享失败");
+    }
+  } catch {
+    if (token.value === requestToken) {
+      alert("未能确认分享结果，请检查服务状态");
+    }
+  } finally {
+    shareLoading.value = false;
+  }
 }
 </script>
 
@@ -231,35 +281,53 @@ function onShareFileChange(_file: UploadFile, fileList: UploadFile[]) {
         <el-button text class="logout-btn" @click="logout">退出</el-button>
       </div>
     </header>
+    <el-tabs v-model="activeTab" class="tabs">
+      <el-tab-pane label="分享照片" name="share">
+        <div class="row">
+          <span>接收者用户编号：</span>
 
-    <el-tab-pane label="分享照片" name="share">
-  <div class="row">
-    <span>接收者用户编号：</span>
+          <el-input-number v-model="shareReceiverId" :min="1" :precision="0" placeholder="用户编号" />
+        </div>
 
-    <el-input-number
-      v-model="shareReceiverId"
-      :min="1"
-      :precision="0"
-      placeholder="用户编号"
-    />
-  </div>
+        <el-upload
+          :auto-upload="false"
+          :limit="1"
+          :on-change="onShareFileChange"
+          :on-remove="onShareFileChange"
+          accept="image/*"
+        >
+          <el-button>选择原图</el-button>
+        </el-upload>
 
-  <el-upload
-    :auto-upload="false"
-    :limit="1"
-    :on-change="onShareFileChange"
-    :on-remove="onShareFileChange"
-    accept="image/*"
-  >
-    <el-button>选择原图</el-button>
-  </el-upload>
+        <div class="row">
+          <span class="muted">
+            {{ shareFile ? `已选择：${shareFile.name}` : "请选择一张原图" }}
+          </span>
+        </div>
 
-  <div class="row">
-    <span class="muted">
-      {{ shareFile ? `已选择：${shareFile.name}` : "请选择一张原图" }}
-    </span>
-  </div>
-</el-tab-pane>
+        <div class="row">
+          <el-button
+            class="btn-primary"
+            :loading="shareLoading"
+            :disabled="shareLoading || !shareFile || !shareReceiverId"
+            @click="submitShare"
+          >
+            分享照片
+          </el-button>
+        </div>
+
+        <div v-if="shareKey" class="keycard">
+          <div class="keycard-head">
+            <span class="keycard-label">分享成功 · 恢复密钥</span>
+          </div>
+
+          <div class="keycard-value">{{ shareKey }}</div>
+
+          <div class="keycard-note">
+            请保存密钥，再交给接收者。刷新页面或再次分享会清空此处显示。
+          </div>
+        </div>
+      </el-tab-pane>
       <!-- ===== 脱敏页 ===== -->
       <el-tab-pane label="脱敏 · 加密" name="desensitize">
         <el-upload
