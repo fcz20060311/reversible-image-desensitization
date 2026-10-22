@@ -48,6 +48,8 @@ function logout() {
   clearToken();
   token.value = "";
   currentUser.value = null;
+  shareReceiverId.value = undefined;
+  shareFile.value = null;
 }
 
 onMounted(async () => {
@@ -198,6 +200,13 @@ function downloadItem(it: Item) {
   a.download = it.filename.replace(/\.[^.]+$/, "") + "_脱敏.png";
   a.click();
 }
+
+const shareReceiverId = ref<number | undefined>(undefined);
+const shareFile = ref<File | null>(null);
+
+function onShareFileChange(_file: UploadFile, fileList: UploadFile[]) {
+  shareFile.value = fileList[0]?.raw ?? null;
+}
 </script>
 
 <template>
@@ -223,7 +232,34 @@ function downloadItem(it: Item) {
       </div>
     </header>
 
-    <el-tabs v-model="activeTab" class="tabs">
+    <el-tab-pane label="分享照片" name="share">
+  <div class="row">
+    <span>接收者用户编号：</span>
+
+    <el-input-number
+      v-model="shareReceiverId"
+      :min="1"
+      :precision="0"
+      placeholder="用户编号"
+    />
+  </div>
+
+  <el-upload
+    :auto-upload="false"
+    :limit="1"
+    :on-change="onShareFileChange"
+    :on-remove="onShareFileChange"
+    accept="image/*"
+  >
+    <el-button>选择原图</el-button>
+  </el-upload>
+
+  <div class="row">
+    <span class="muted">
+      {{ shareFile ? `已选择：${shareFile.name}` : "请选择一张原图" }}
+    </span>
+  </div>
+</el-tab-pane>
       <!-- ===== 脱敏页 ===== -->
       <el-tab-pane label="脱敏 · 加密" name="desensitize">
         <el-upload

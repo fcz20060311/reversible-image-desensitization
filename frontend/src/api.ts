@@ -118,3 +118,22 @@ export async function getCurrentUserApi() {
     data: CurrentUser | null;
   };
 }
+
+export async function sharePhotoApi(receiverId: number, file: File) {
+  const form = new FormData();
+
+  form.append("receiverId", String(receiverId));
+  form.append("file", file);
+
+  const resp = await axios.post(`${API_JAVA}/api/photo/share`, form, {
+    headers: {
+      Authorization: getToken(),
+    },
+  });
+
+  return resp.data as {
+    code: number;
+    msg: string;
+    data: string | null;
+  };
+}
